@@ -1,73 +1,72 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using CatenoidCore;
 using NAudio.Wave;
+using IOPath = System.IO.Path;
 
 namespace CatenoidDemo
 {
     public partial class MainWindow : Window
     {
-        private const int USteps = 80;
-        private const int VSteps = 60;
-        private const double SurfaceA = 0.6;
-        private const double SurfaceHeight = 2.4;
-
         private const double DefaultPitch = -72;
         private const double DefaultYaw = -24;
         private const double DefaultDistance = 8;
         private const double MinDistance = 3.5;
         private const double MaxDistance = 22;
 
-        // Hologram transforms
-        private readonly Transform3DGroup _modelTransform = new Transform3DGroup();
-        private readonly Transform3DGroup _baseTransform = new Transform3DGroup();
-        private readonly AxisAngleRotation3D _spinRotation = new AxisAngleRotation3D(new Vector3D(0, 0, 1), 0);
-        private readonly AxisAngleRotation3D _basePlateRotation = new AxisAngleRotation3D(new Vector3D(0, 0, 1), 0);
-        private readonly AxisAngleRotation3D _pitchRotation = new AxisAngleRotation3D(new Vector3D(1, 0, 0), DefaultPitch);
-        private readonly AxisAngleRotation3D _yawRotation = new AxisAngleRotation3D(new Vector3D(0, 0, 1), DefaultYaw);
-        private readonly TranslateTransform3D _floatTranslate = new TranslateTransform3D(0, 0, 0);
-        private readonly TranslateTransform3D _panTranslate = new TranslateTransform3D(0, 0, 0);
-        private readonly ScaleTransform3D _pulseScale = new ScaleTransform3D(1, 1, 1);
-        private readonly ScaleTransform3D _wireOffsetScale = new ScaleTransform3D(1.012, 1.012, 1.012);
+        private readonly HoloSettings _settings = new();
+        private readonly HoloSurface _surface;
 
-        // Cached materials
-        private readonly SolidColorBrush _glowBrush = new SolidColorBrush(Color.FromArgb(70, 200, 255, 255));
-        private readonly SolidColorBrush _wireGlowBrush = new SolidColorBrush(Color.FromArgb(120, 120, 240, 255));
-        private MaterialGroup _holoMaterial = new MaterialGroup();
-        private MaterialGroup _wireMaterial = new MaterialGroup();
-        private GeometryModel3D? _holoModel;
+        // Hologram transforms
+        private readonly Transform3DGroup _modelTransform = new();
+        private readonly Transform3DGroup _baseTransform = new();
+        private readonly AxisAngleRotation3D _spinRotation = new(new Vector3D(0, 0, 1), 0);
+        private readonly AxisAngleRotation3D _basePlateRotation = new(new Vector3D(0, 0, 1), 0);
+        private readonly AxisAngleRotation3D _pitchRotation = new(new Vector3D(1, 0, 0), DefaultPitch);
+        private readonly AxisAngleRotation3D _yawRotation = new(new Vector3D(0, 0, 1), DefaultYaw);
+        private readonly TranslateTransform3D _floatTranslate = new(0, 0, 0);
+        private readonly TranslateTransform3D _panTranslate = new(0, 0, 0);
+        private readonly ScaleTransform3D _pulseScale = new(1, 1, 1);
+        private readonly ScaleTransform3D _wireOffsetScale = new(1.012, 1.012, 1.012);
+
+        // Materials that are mutated instead of reallocated
+        private readonly SolidColorBrush _glowBrush = new(Color.FromArgb(70, 200, 255, 255));
+        private readonly SolidColorBrush _wireGlowBrush = new(Color.FromArgb(120, 120, 240, 255));
+        private MaterialGroup _holoMaterial = new();
+        private MaterialGroup _wireMaterial = new();
         private GeometryModel3D? _wireModel;
 
         // Background layers
-        private readonly TranslateTransform _gridDrift = new TranslateTransform();
-        private readonly TranslateTransform _scanlineDrift = new TranslateTransform();
-        private readonly TranslateTransform _sweepDrift = new TranslateTransform();
-        private readonly List<Star> _stars = new List<Star>();
-        private readonly Random _random = new Random(20260116);
+        private readonly TranslateTransform _gridDrift = new();
+        private readonly TranslateTransform _scanlineDrift = new();
+        private readonly TranslateTransform _sweepDrift = new();
+        private readonly List<Star> _stars = new();
+        private readonly Random _random = new(20260116);
 
         // Animation state
-        private readonly DispatcherTimer _timer = new DispatcherTimer();
+        private readonly DispatcherTimer _timer = new();
         private readonly Stopwatch _clock = Stopwatch.StartNew();
         private double _morphPhase;
         private double _floatPhase;
         private double _colorPhase;
         private double _spinAngle;
-        private double _spinSpeed = 0.9;
         private double _distance = DefaultDistance;
-        private int _spinAxis;                 // 0 = Z, 1 = Y, 2 = X
-        private bool _autoSpin = true;
-        private bool _morphPaused;
-        private bool _wireframeVisible = true;
         private long _lastFrameTicks;
         private double _fps;
         private int _readoutCountdown;
+        private WindowState _windowedState = WindowState.Normal;
+        private WindowStyle _windowedStyle = WindowStyle.SingleBorderWindow;
 
         // Interaction state
         private bool _rotating;
@@ -83,7 +82,6 @@ namespace CatenoidDemo
         private struct Star
         {
             public Ellipse Dot;
-            public double X;
             public double Y;
             public double Speed;
             public double Phase;
@@ -94,9 +92,14 @@ namespace CatenoidDemo
         {
             InitializeComponent();
 
+            DataContext = _settings;
+            _settings.PropertyChanged += OnSettingsChanged;
+
+            _surface = new HoloSurface(_settings.USteps, _settings.VSteps);
+
             BuildMaterials();
             BuildProjectorBase();
-            BuildSurface(0);
+            BuildSurfaceModels();
             BuildBackgroundLayers();
             ApplyCamera();
             InitAudio();
@@ -122,6 +125,34 @@ namespace CatenoidDemo
             }
         }
 
+        private void OnSettingsChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            switch (e.PropertyName)
+            {
+                case nameof(HoloSettings.USteps):
+                case nameof(HoloSettings.VSteps):
+                    _surface.SetResolution(_settings.USteps, _settings.VSteps);
+                    break;
+                case nameof(HoloSettings.Height):
+                    BuildProjectorBase();
+                    break;
+                case nameof(HoloSettings.WireframeVisible):
+                    WireRoot.Content = _settings.WireframeVisible ? _wireModel : null;
+                    break;
+                case nameof(HoloSettings.GridVisible):
+                    GridLayer.Visibility = _settings.GridVisible ? Visibility.Visible : Visibility.Collapsed;
+                    break;
+                case nameof(HoloSettings.SpinAxis):
+                    _spinRotation.Axis = _settings.SpinAxis switch
+                    {
+                        1 => new Vector3D(0, 1, 0),
+                        2 => new Vector3D(1, 0, 0),
+                        _ => new Vector3D(0, 0, 1)
+                    };
+                    break;
+            }
+        }
+
         private void InitAudio()
         {
             try
@@ -139,8 +170,7 @@ namespace CatenoidDemo
                         sum += sample * sample;
                     }
 
-                    float rms = (float)Math.Sqrt(sum / samples);
-                    _audioLevel = rms;
+                    _audioLevel = (float)Math.Sqrt(sum / samples);
                 };
 
                 _capture.StartRecording();
@@ -182,14 +212,36 @@ namespace CatenoidDemo
             _baseTransform.Children.Add(_panTranslate);
         }
 
-        /// <summary>Glowing projector plate and light cone that make the model read as a hologram.</summary>
+        private void BuildSurfaceModels()
+        {
+            ModelRoot.Content = new GeometryModel3D(_surface.Mesh, _holoMaterial)
+            {
+                BackMaterial = _holoMaterial,
+                Transform = _modelTransform
+            };
+
+            Transform3DGroup wireTransform = new();
+            wireTransform.Children.Add(_wireOffsetScale);
+            wireTransform.Children.Add(_modelTransform);
+
+            _wireModel = new GeometryModel3D(_surface.Mesh, _wireMaterial)
+            {
+                BackMaterial = _wireMaterial,
+                Transform = wireTransform
+            };
+
+            WireRoot.Content = _settings.WireframeVisible ? _wireModel : null;
+        }
+
+        /// <summary>Glowing projector plate, rings and light cone that make the model read as a hologram.</summary>
         private void BuildProjectorBase()
         {
-            double plateZ = -(SurfaceHeight / 2.0) - 0.55;
-            Model3DGroup group = new Model3DGroup();
+            double modelBottom = -_settings.Height / 2.0;
+            double plateZ = modelBottom - 0.55;
+            Model3DGroup group = new();
 
             group.Children.Add(new GeometryModel3D(
-                HoloGeometry.BuildRing(0.05, 2.6, plateZ),
+                HoloGeometry.ToMeshGeometry(MeshBuilders.BuildRing(0.05, 2.6, plateZ)),
                 new EmissiveMaterial(new RadialGradientBrush
                 {
                     GradientStops =
@@ -204,16 +256,15 @@ namespace CatenoidDemo
 
             foreach (double radius in new[] { 1.35, 1.9, 2.45 })
             {
-                EmissiveMaterial ringMaterial = new EmissiveMaterial(
-                    new SolidColorBrush(Color.FromArgb(150, 0, 230, 255)));
+                EmissiveMaterial ringMaterial = new(new SolidColorBrush(Color.FromArgb(150, 0, 230, 255)));
 
                 group.Children.Add(new GeometryModel3D(
-                    HoloGeometry.BuildRing(radius, radius + 0.035, plateZ + 0.002),
+                    HoloGeometry.ToMeshGeometry(MeshBuilders.BuildRing(radius, radius + 0.035, plateZ + 0.002)),
                     ringMaterial)
                 { BackMaterial = ringMaterial });
             }
 
-            EmissiveMaterial coneMaterial = new EmissiveMaterial(new LinearGradientBrush
+            EmissiveMaterial coneMaterial = new(new LinearGradientBrush
             {
                 StartPoint = new Point(0, 0),
                 EndPoint = new Point(0, 1),
@@ -225,51 +276,12 @@ namespace CatenoidDemo
             });
 
             group.Children.Add(new GeometryModel3D(
-                HoloGeometry.BuildProjectorCone(1.15, 0.35, plateZ + 0.01, -SurfaceHeight / 2.0),
+                HoloGeometry.ToMeshGeometry(MeshBuilders.BuildCone(1.15, 0.35, plateZ + 0.01, modelBottom)),
                 coneMaterial)
             { BackMaterial = coneMaterial });
 
             group.Transform = _baseTransform;
             BaseRoot.Content = group;
-        }
-
-        private void BuildSurface(double t)
-        {
-            double ripple = 0.035 + 0.09 * _smoothBeat;
-            MeshGeometry3D mesh = HoloGeometry.BuildMorphSurface(
-                USteps, VSteps, SurfaceA, SurfaceHeight, t, ripple, _morphPhase);
-
-            if (_holoModel == null)
-            {
-                _holoModel = new GeometryModel3D(mesh, _holoMaterial)
-                {
-                    BackMaterial = _holoMaterial,
-                    Transform = _modelTransform
-                };
-                ModelRoot.Content = _holoModel;
-            }
-            else
-            {
-                _holoModel.Geometry = mesh;
-            }
-
-            if (_wireModel == null)
-            {
-                Transform3DGroup wireTransform = new Transform3DGroup();
-                wireTransform.Children.Add(_wireOffsetScale);
-                wireTransform.Children.Add(_modelTransform);
-
-                _wireModel = new GeometryModel3D(mesh, _wireMaterial)
-                {
-                    BackMaterial = _wireMaterial,
-                    Transform = wireTransform
-                };
-                WireRoot.Content = _wireModel;
-            }
-            else
-            {
-                _wireModel.Geometry = mesh;
-            }
         }
 
         private void ApplyCamera()
@@ -282,7 +294,7 @@ namespace CatenoidDemo
 
         private void BuildBackgroundLayers()
         {
-            DrawingBrush gridBrush = new DrawingBrush(new GeometryDrawing
+            DrawingBrush gridBrush = new(new GeometryDrawing
             {
                 Geometry = new RectangleGeometry(new Rect(0, 0, 56, 56)),
                 Pen = new Pen(new SolidColorBrush(Color.FromArgb(120, 60, 200, 255)), 0.7)
@@ -306,7 +318,7 @@ namespace CatenoidDemo
                 }
             };
 
-            DrawingBrush scanlineBrush = new DrawingBrush(new GeometryDrawing
+            DrawingBrush scanlineBrush = new(new GeometryDrawing
             {
                 Geometry = new RectangleGeometry(new Rect(0, 0, 4, 1.6)),
                 Brush = new SolidColorBrush(Color.FromArgb(255, 190, 240, 255))
@@ -348,7 +360,7 @@ namespace CatenoidDemo
                 double size = 0.7 + _random.NextDouble() * 2.1;
                 double opacity = 0.15 + _random.NextDouble() * 0.6;
 
-                Ellipse dot = new Ellipse
+                Ellipse dot = new()
                 {
                     Width = size,
                     Height = size,
@@ -358,17 +370,16 @@ namespace CatenoidDemo
                     Opacity = opacity
                 };
 
-                Star star = new Star
+                Star star = new()
                 {
                     Dot = dot,
-                    X = _random.NextDouble() * width,
                     Y = _random.NextDouble() * height,
                     Speed = 4 + _random.NextDouble() * 22,
                     Phase = _random.NextDouble() * Math.PI * 2,
                     BaseOpacity = opacity
                 };
 
-                Canvas.SetLeft(dot, star.X);
+                Canvas.SetLeft(dot, _random.NextDouble() * width);
                 Canvas.SetTop(dot, star.Y);
                 StarLayer.Children.Add(dot);
                 _stars.Add(star);
@@ -377,30 +388,27 @@ namespace CatenoidDemo
 
         private void AnimateBackground(double dt, double time)
         {
+            double intensity = _settings.BackgroundIntensity;
+
             NebulaARotate.Angle = time * 1.6;
             NebulaBRotate.Angle = -time * 1.1;
 
-            double breathA = 1.0 + 0.06 * Math.Sin(time * 0.5) + 0.05 * _smoothBeat;
-            double breathB = 1.0 + 0.05 * Math.Cos(time * 0.35) + 0.04 * _smoothBeat;
-            NebulaAScale.ScaleX = NebulaAScale.ScaleY = breathA;
-            NebulaBScale.ScaleX = NebulaBScale.ScaleY = breathB;
-            NebulaA.Opacity = 0.45 + 0.2 * _smoothBeat;
-            NebulaB.Opacity = 0.35 + 0.18 * Math.Abs(Math.Sin(time * 0.4));
+            NebulaAScale.ScaleX = NebulaAScale.ScaleY = 1.0 + 0.06 * Math.Sin(time * 0.5) + 0.05 * _smoothBeat;
+            NebulaBScale.ScaleX = NebulaBScale.ScaleY = 1.0 + 0.05 * Math.Cos(time * 0.35) + 0.04 * _smoothBeat;
+            NebulaA.Opacity = (0.45 + 0.2 * _smoothBeat) * intensity;
+            NebulaB.Opacity = (0.35 + 0.18 * Math.Abs(Math.Sin(time * 0.4))) * intensity;
 
             _gridDrift.X = (_gridDrift.X + dt * 9.0) % 56.0;
             _gridDrift.Y = (_gridDrift.Y + dt * 16.0) % 56.0;
-            GridLayer.Opacity = GridLayer.Visibility == Visibility.Visible
-                ? 0.16 + 0.14 * _smoothBeat
-                : 0.0;
+            GridLayer.Opacity = (0.16 + 0.14 * _smoothBeat) * intensity;
 
             _scanlineDrift.Y = (_scanlineDrift.Y + dt * 26.0) % 4.0;
-            ScanlineLayer.Opacity = 0.08 + 0.05 * Math.Abs(Math.Sin(time * 3.0));
+            ScanlineLayer.Opacity = (0.08 + 0.05 * Math.Abs(Math.Sin(time * 3.0))) * intensity;
 
             double sweepCycle = (time * 0.22) % 1.0;
             _sweepDrift.Y = sweepCycle * (ActualHeight + 180) - 180;
-            SweepLayer.Opacity = 0.10 + 0.10 * Math.Sin(sweepCycle * Math.PI);
+            SweepLayer.Opacity = (0.10 + 0.10 * Math.Sin(sweepCycle * Math.PI)) * intensity;
 
-            // Hologram flicker
             Viewport.Opacity = 0.93 + 0.07 * Math.Abs(Math.Sin(time * 7.3)) - (_random.NextDouble() < 0.02 ? 0.12 : 0.0);
 
             double height = Math.Max(ActualHeight, 240);
@@ -411,7 +419,7 @@ namespace CatenoidDemo
                 if (star.Y < -4) star.Y += height + 8;
 
                 Canvas.SetTop(star.Dot, star.Y);
-                star.Dot.Opacity = star.BaseOpacity * (0.55 + 0.45 * Math.Sin(time * 2.0 + star.Phase));
+                star.Dot.Opacity = star.BaseOpacity * (0.55 + 0.45 * Math.Sin(time * 2.0 + star.Phase)) * intensity;
                 _stars[i] = star;
             }
         }
@@ -429,58 +437,64 @@ namespace CatenoidDemo
         private void Animate(object? sender, EventArgs e)
         {
             long now = _clock.ElapsedTicks;
-            double dt = (now - _lastFrameTicks) / (double)Stopwatch.Frequency;
+            double dt = Math.Clamp((now - _lastFrameTicks) / (double)Stopwatch.Frequency, 0.001, 0.1);
             _lastFrameTicks = now;
-            dt = Clamp(dt, 0.001, 0.1);
             double time = _clock.Elapsed.TotalSeconds;
             _fps = _fps <= 0 ? 1.0 / dt : 0.9 * _fps + 0.1 / dt;
 
-            double beatRaw = Math.Min(_audioLevel * 10.0, 1.0);
+            double beatRaw = Math.Min(_audioLevel * _settings.AudioSensitivity, 1.0);
             _smoothBeat = 0.8 * _smoothBeat + 0.2 * beatRaw;
 
-            if (!_morphPaused) _morphPhase += dt * 0.66;
-            _floatPhase += dt * 1.0;
-            _colorPhase += dt * 0.07;
+            if (!_settings.MorphPaused) _morphPhase += dt * _settings.MorphSpeed;
+            _floatPhase += dt;
+            _colorPhase += dt * _settings.HueDrift;
 
-            double t = (Math.Sin(_morphPhase) + 1) / 2.0;
-            t = Clamp(t + _smoothBeat * 0.12, 0.0, 1.0);
-            BuildSurface(t);
+            double morph = _settings.MorphPaused
+                ? _settings.ManualMorph
+                : Math.Clamp((Math.Sin(_morphPhase) + 1) / 2.0 + _smoothBeat * 0.12, 0.0, 1.0);
 
-            if (_autoSpin)
+            _surface.Update(new SurfaceParameters(
+                _settings.NeckRadius,
+                _settings.Height,
+                morph,
+                _settings.RippleAmount + 0.09 * _smoothBeat,
+                _morphPhase));
+
+            if (_settings.AutoSpin)
             {
-                _spinAngle += dt * 60.0 * _spinSpeed * (1.0 + _smoothBeat * 0.8);
+                _spinAngle += dt * 60.0 * _settings.SpinSpeed * (1.0 + _smoothBeat * 0.8);
                 _spinRotation.Angle = _spinAngle % 360;
             }
 
             _basePlateRotation.Angle = (time * -14.0) % 360;
-
             _floatTranslate.OffsetZ = 0.22 * Math.Sin(_floatPhase) + _smoothBeat * 0.12;
 
             double pulse = 1.0 + 0.03 * Math.Sin(_floatPhase * 2.0) + 0.14 * _smoothBeat;
             _pulseScale.ScaleX = _pulseScale.ScaleY = _pulseScale.ScaleZ = pulse;
 
-            byte glowAlpha = (byte)(55 + 150 * _smoothBeat);
+            byte glowAlpha = (byte)Math.Clamp((30 + 220 * _settings.GlowIntensity) * (0.45 + 0.55 * _smoothBeat) + 25, 0, 255);
             _glowBrush.Color = Color.FromArgb(glowAlpha, 200, 245, 255);
 
-            Color wireColor = ShiftHue(Color.FromRgb(90, 220, 255), _colorPhase % 1.0);
-            _wireGlowBrush.Color = Color.FromArgb((byte)(70 + 90 * _smoothBeat), wireColor.R, wireColor.G, wireColor.B);
+            Color wireColor = HoloGeometry.ShiftHue(Color.FromRgb(90, 220, 255), _colorPhase % 1.0);
+            _wireGlowBrush.Color = Color.FromArgb(
+                (byte)Math.Clamp(40 + 140 * _settings.GlowIntensity * (0.5 + _smoothBeat), 0, 255),
+                wireColor.R, wireColor.G, wireColor.B);
 
             AnimateBackground(dt, time);
 
             if (--_readoutCountdown <= 0)
             {
                 _readoutCountdown = 12;
-                UpdateReadout(t);
+                UpdateReadout(morph);
             }
         }
 
         private void UpdateReadout(double morph)
         {
-            string axis = _spinAxis switch { 1 => "Y", 2 => "X", _ => "Z" };
             Readout.Text =
-                $"FPS {_fps,5:0.0}\n" +
-                $"SPIN {(_autoSpin ? "ON " : "OFF")}  AXIS {axis}  x{_spinSpeed:0.0}\n" +
-                $"MORPH {(_morphPaused ? "HOLD" : "LIVE")} {morph:0.00}\n" +
+                $"FPS {_fps,5:0.0}   TRIS {_surface.TriangleCount,6:n0}\n" +
+                $"SPIN {(_settings.AutoSpin ? "ON " : "OFF")}  AXIS {_settings.SpinAxisName}  x{_settings.SpinSpeed:0.0}\n" +
+                $"MORPH {(_settings.MorphPaused ? "HOLD" : "LIVE")} {morph:0.00}\n" +
                 $"YAW {Normalize(_yawRotation.Angle),6:0}°  PITCH {Normalize(_pitchRotation.Angle),6:0}°\n" +
                 $"ZOOM {_distance:0.0}\n" +
                 $"AUDIO {(_audioAvailable ? $"{_smoothBeat:0.00}" : "N/A")}";
@@ -548,39 +562,39 @@ namespace CatenoidDemo
 
         private void Window_KeyDown(object sender, KeyEventArgs e)
         {
-            double step = 0.25;
+            const double step = 0.25;
 
             switch (e.Key)
             {
                 case Key.Space:
-                    _autoSpin = !_autoSpin;
+                    _settings.AutoSpin = !_settings.AutoSpin;
                     break;
                 case Key.X:
-                    _spinAxis = (_spinAxis + 1) % 3;
-                    _spinRotation.Axis = _spinAxis switch
-                    {
-                        1 => new Vector3D(0, 1, 0),
-                        2 => new Vector3D(1, 0, 0),
-                        _ => new Vector3D(0, 0, 1)
-                    };
+                    _settings.SpinAxis++;
                     break;
                 case Key.OemOpenBrackets:
-                    _spinSpeed = Clamp(_spinSpeed - 0.2, 0.0, 6.0);
+                    _settings.SpinSpeed -= 0.2;
                     break;
                 case Key.OemCloseBrackets:
-                    _spinSpeed = Clamp(_spinSpeed + 0.2, 0.0, 6.0);
+                    _settings.SpinSpeed += 0.2;
                     break;
                 case Key.M:
-                    _morphPaused = !_morphPaused;
+                    _settings.MorphPaused = !_settings.MorphPaused;
                     break;
                 case Key.H:
-                    _wireframeVisible = !_wireframeVisible;
-                    WireRoot.Content = _wireframeVisible ? _wireModel : null;
+                    _settings.WireframeVisible = !_settings.WireframeVisible;
                     break;
                 case Key.G:
-                    GridLayer.Visibility = GridLayer.Visibility == Visibility.Visible
-                        ? Visibility.Collapsed
-                        : Visibility.Visible;
+                    _settings.GridVisible = !_settings.GridVisible;
+                    break;
+                case Key.Tab:
+                    _settings.PanelVisible = !_settings.PanelVisible;
+                    break;
+                case Key.F11:
+                    ToggleFullscreen();
+                    break;
+                case Key.P:
+                    SaveSnapshot();
                     break;
                 case Key.R:
                     ResetView();
@@ -618,30 +632,76 @@ namespace CatenoidDemo
             }
         }
 
+        private void ResetButton_Click(object sender, RoutedEventArgs e) => ResetView();
+
         private void Zoom(double amount)
         {
-            _distance = Clamp(_distance + amount, MinDistance, MaxDistance);
+            _distance = Math.Clamp(_distance + amount, MinDistance, MaxDistance);
             ApplyCamera();
         }
 
         private void ResetView()
         {
+            _settings.ResetToDefaults();
+
             _pitchRotation.Angle = DefaultPitch;
             _yawRotation.Angle = DefaultYaw;
             _panTranslate.OffsetX = 0;
             _panTranslate.OffsetY = 0;
             _spinAngle = 0;
             _spinRotation.Angle = 0;
-            _spinAxis = 0;
-            _spinRotation.Axis = new Vector3D(0, 0, 1);
-            _spinSpeed = 0.9;
-            _autoSpin = true;
-            _morphPaused = false;
             _distance = DefaultDistance;
             ApplyCamera();
         }
 
-        // -------------------------------------------------------------------- helpers
+        private void ToggleFullscreen()
+        {
+            if (WindowStyle == WindowStyle.None)
+            {
+                WindowStyle = _windowedStyle;
+                WindowState = _windowedState;
+                ResizeMode = ResizeMode.CanResize;
+            }
+            else
+            {
+                _windowedStyle = WindowStyle;
+                _windowedState = WindowState;
+                WindowStyle = WindowStyle.None;
+                ResizeMode = ResizeMode.NoResize;
+                WindowState = WindowState.Maximized;
+            }
+        }
+
+        /// <summary>Writes a PNG of the current frame next to the user's Pictures folder.</summary>
+        private void SaveSnapshot()
+        {
+            try
+            {
+                int width = (int)Math.Max(ActualWidth, 1);
+                int height = (int)Math.Max(ActualHeight, 1);
+
+                RenderTargetBitmap bitmap = new(width, height, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(this);
+
+                PngBitmapEncoder encoder = new();
+                encoder.Frames.Add(BitmapFrame.Create(bitmap));
+
+                string directory = IOPath.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+                    "CatenoidHologram");
+                Directory.CreateDirectory(directory);
+
+                string path = IOPath.Combine(directory, $"catenoid-{DateTime.Now:yyyyMMdd-HHmmss}.png");
+                using FileStream stream = File.Create(path);
+                encoder.Save(stream);
+
+                Title = $"Catenoid Holographic Studio — saved {IOPath.GetFileName(path)}";
+            }
+            catch (Exception ex)
+            {
+                Title = $"Catenoid Holographic Studio — snapshot failed: {ex.Message}";
+            }
+        }
 
         private static double Normalize(double angle)
         {
@@ -649,67 +709,6 @@ namespace CatenoidDemo
             if (angle > 180) angle -= 360;
             if (angle < -180) angle += 360;
             return angle;
-        }
-
-        private static double Clamp(double v, double min, double max)
-        {
-            if (v < min) return min;
-            if (v > max) return max;
-            return v;
-        }
-
-        private static Color ShiftHue(Color c, double shift)
-        {
-            ColorToHSV(c, out double h, out double s, out double v);
-            h = (h + shift) % 1.0;
-            return ColorFromHSV(h, s, v);
-        }
-
-        private static void ColorToHSV(Color c, out double h, out double s, out double v)
-        {
-            double r = c.R / 255.0;
-            double g = c.G / 255.0;
-            double b = c.B / 255.0;
-
-            double max = Math.Max(r, Math.Max(g, b));
-            double min = Math.Min(r, Math.Min(g, b));
-            double delta = max - min;
-
-            h = 0;
-            if (delta != 0)
-            {
-                if (max == r) h = (g - b) / delta;
-                else if (max == g) h = 2 + (b - r) / delta;
-                else h = 4 + (r - g) / delta;
-                h /= 6;
-                if (h < 0) h += 1;
-            }
-
-            s = max == 0 ? 0 : delta / max;
-            v = max;
-        }
-
-        private static Color ColorFromHSV(double h, double s, double v)
-        {
-            int i = (int)(h * 6);
-            double f = h * 6 - i;
-            double p = v * (1 - s);
-            double q = v * (1 - f * s);
-            double t = v * (1 - (1 - f) * s);
-
-            double r = 0, g = 0, b = 0;
-
-            switch (i % 6)
-            {
-                case 0: r = v; g = t; b = p; break;
-                case 1: r = q; g = v; b = p; break;
-                case 2: r = p; g = v; b = t; break;
-                case 3: r = p; g = q; b = v; break;
-                case 4: r = t; g = p; b = v; break;
-                case 5: r = v; g = p; b = q; break;
-            }
-
-            return Color.FromRgb((byte)(r * 255), (byte)(g * 255), (byte)(b * 255));
         }
     }
 }

@@ -15,11 +15,33 @@
         MouseMove="Window_MouseMove"
         MouseWheel="Window_MouseWheel">
     <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+
         <Style x:Key="HudLabel" TargetType="TextBlock">
             <Setter Property="Foreground" Value="#7FE8FF"/>
             <Setter Property="FontFamily" Value="Consolas"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Margin" Value="0,1,0,1"/>
+        </Style>
+
+        <Style x:Key="PanelCaption" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#9FE9FF"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,8,0,2"/>
+        </Style>
+
+        <Style x:Key="HoloSlider" TargetType="Slider">
+            <Setter Property="Height" Value="18"/>
+            <Setter Property="Foreground" Value="#00E5FF"/>
+            <Setter Property="IsSnapToTickEnabled" Value="False"/>
+        </Style>
+
+        <Style x:Key="HoloCheck" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#9FE9FF"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
         </Style>
     </Window.Resources>
 
@@ -35,7 +57,7 @@
         </Grid.Background>
 
         <!-- Layer 1: drifting nebula clouds -->
-        <Rectangle x:Name="NebulaA" RenderTransformOrigin="0.5,0.5" Opacity="0.55">
+        <Rectangle x:Name="NebulaA" RenderTransformOrigin="0.5,0.5" Opacity="0.55" IsHitTestVisible="False">
             <Rectangle.Fill>
                 <RadialGradientBrush Center="0.3,0.35" GradientOrigin="0.3,0.35" RadiusX="0.55" RadiusY="0.55">
                     <GradientStop Color="#5A1E7A" Offset="0.0"/>
@@ -51,7 +73,7 @@
             </Rectangle.RenderTransform>
         </Rectangle>
 
-        <Rectangle x:Name="NebulaB" RenderTransformOrigin="0.5,0.5" Opacity="0.45">
+        <Rectangle x:Name="NebulaB" RenderTransformOrigin="0.5,0.5" Opacity="0.45" IsHitTestVisible="False">
             <Rectangle.Fill>
                 <RadialGradientBrush Center="0.72,0.7" GradientOrigin="0.72,0.7" RadiusX="0.5" RadiusY="0.5">
                     <GradientStop Color="#0B5A78" Offset="0.0"/>
@@ -132,8 +154,8 @@
         </TextBlock>
 
         <TextBlock x:Name="Readout"
-                   HorizontalAlignment="Right" VerticalAlignment="Top"
-                   Margin="0,24,28,0" TextAlignment="Right"
+                   HorizontalAlignment="Left" VerticalAlignment="Top"
+                   Margin="28,54,0,0"
                    FontFamily="Consolas" FontSize="12" Foreground="#7FE8FF"
                    IsHitTestVisible="False"/>
 
@@ -148,9 +170,70 @@
                 <TextBlock Style="{StaticResource HudLabel}" Text="Drag right mouse / WASD  ·  move"/>
                 <TextBlock Style="{StaticResource HudLabel}" Text="Scroll or +/-  ·  zoom"/>
                 <TextBlock Style="{StaticResource HudLabel}" Text="Space  ·  auto-spin      X  ·  spin axis"/>
-                <TextBlock Style="{StaticResource HudLabel}" Text="[ ]  ·  spin speed      M  ·  morph pause"/>
-                <TextBlock Style="{StaticResource HudLabel}" Text="H  ·  wireframe      G  ·  grid      R  ·  reset"/>
+                <TextBlock Style="{StaticResource HudLabel}" Text="[ ]  ·  spin speed      M  ·  morph hold"/>
+                <TextBlock Style="{StaticResource HudLabel}" Text="H  ·  wireframe      G  ·  grid"/>
+                <TextBlock Style="{StaticResource HudLabel}" Text="Tab  ·  panel      F11  ·  fullscreen"/>
+                <TextBlock Style="{StaticResource HudLabel}" Text="P  ·  save PNG      R  ·  reset"/>
             </StackPanel>
+        </Border>
+
+        <!-- Layer 8: live settings panel -->
+        <Border HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                Margin="0,18,18,18" Padding="16,12,16,14" Width="272"
+                CornerRadius="12" Background="#5905101E"
+                BorderBrush="#4400E5FF" BorderThickness="1"
+                Visibility="{Binding PanelVisible, Converter={StaticResource BoolToVisibility}}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <TextBlock Text="HOLOGRAM PARAMETERS" Foreground="#B8F4FF" FontFamily="Consolas" FontSize="13"/>
+                    <TextBlock Text="Tab hides this panel" Foreground="#557FA8" FontFamily="Consolas" FontSize="10"/>
+
+                    <TextBlock Style="{StaticResource PanelCaption}" Text="{Binding NeckRadius, StringFormat='Neck radius   {0:0.00}'}"/>
+                    <Slider Style="{StaticResource HoloSlider}" Minimum="0.15" Maximum="1.5" Value="{Binding NeckRadius, Mode=TwoWay}"/>
+
+                    <TextBlock Style="{StaticResource PanelCaption}" Text="{Binding Height, StringFormat='Height   {0:0.00}'}"/>
+                    <Slider Style="{StaticResource HoloSlider}" Minimum="0.8" Maximum="5.0" Value="{Binding Height, Mode=TwoWay}"/>
+
+                    <TextBlock Style="{StaticResource PanelCaption}" Text="{Binding USteps, StringFormat='Detail around   {0}'}"/>
+                    <Slider Style="{StaticResource HoloSlider}" Minimum="12" Maximum="240" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding USteps, Mode=TwoWay}"/>
+
+                    <TextBlock Style="{StaticResource PanelCaption}" Text="{Binding VSteps, StringFormat='Detail along   {0}'}"/>
+                    <Slider Style="{StaticResource HoloSlider}" Minimum="8" Maximum="200" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding VSteps, Mode=TwoWay}"/>
+
+                    <TextBlock Style="{StaticResource PanelCaption}" Text="{Binding MorphSpeed, StringFormat='Morph speed   {0:0.00}'}"/>
+                    <Slider Style="{StaticResource HoloSlider}" Minimum="0" Maximum="3" Value="{Binding MorphSpeed, Mode=TwoWay}"/>
+
+                    <TextBlock Style="{StaticResource PanelCaption}" Text="{Binding ManualMorph, StringFormat='Held morph (catenoid → helicoid)   {0:0.00}'}"/>
+                    <Slider Style="{StaticResource HoloSlider}" Minimum="0" Maximum="1" Value="{Binding ManualMorph, Mode=TwoWay}"/>
+
+                    <TextBlock Style="{StaticResource PanelCaption}" Text="{Binding SpinSpeed, StringFormat='Spin speed   {0:0.00}'}"/>
+                    <Slider Style="{StaticResource HoloSlider}" Minimum="0" Maximum="6" Value="{Binding SpinSpeed, Mode=TwoWay}"/>
+
+                    <TextBlock Style="{StaticResource PanelCaption}" Text="{Binding RippleAmount, StringFormat='Ripple   {0:0.000}'}"/>
+                    <Slider Style="{StaticResource HoloSlider}" Minimum="0" Maximum="0.25" Value="{Binding RippleAmount, Mode=TwoWay}"/>
+
+                    <TextBlock Style="{StaticResource PanelCaption}" Text="{Binding GlowIntensity, StringFormat='Glow   {0:0.00}'}"/>
+                    <Slider Style="{StaticResource HoloSlider}" Minimum="0" Maximum="1" Value="{Binding GlowIntensity, Mode=TwoWay}"/>
+
+                    <TextBlock Style="{StaticResource PanelCaption}" Text="{Binding HueDrift, StringFormat='Hue drift   {0:0.00}'}"/>
+                    <Slider Style="{StaticResource HoloSlider}" Minimum="0" Maximum="1" Value="{Binding HueDrift, Mode=TwoWay}"/>
+
+                    <TextBlock Style="{StaticResource PanelCaption}" Text="{Binding BackgroundIntensity, StringFormat='Background   {0:0.00}'}"/>
+                    <Slider Style="{StaticResource HoloSlider}" Minimum="0" Maximum="1.5" Value="{Binding BackgroundIntensity, Mode=TwoWay}"/>
+
+                    <TextBlock Style="{StaticResource PanelCaption}" Text="{Binding AudioSensitivity, StringFormat='Audio sensitivity   {0:0.0}'}"/>
+                    <Slider Style="{StaticResource HoloSlider}" Minimum="0" Maximum="40" Value="{Binding AudioSensitivity, Mode=TwoWay}"/>
+
+                    <CheckBox Style="{StaticResource HoloCheck}" Content="Auto-spin (Space)" IsChecked="{Binding AutoSpin, Mode=TwoWay}"/>
+                    <CheckBox Style="{StaticResource HoloCheck}" Content="Hold morph (M)" IsChecked="{Binding MorphPaused, Mode=TwoWay}"/>
+                    <CheckBox Style="{StaticResource HoloCheck}" Content="Wireframe shell (H)" IsChecked="{Binding WireframeVisible, Mode=TwoWay}"/>
+                    <CheckBox Style="{StaticResource HoloCheck}" Content="Background grid (G)" IsChecked="{Binding GridVisible, Mode=TwoWay}"/>
+
+                    <Button Content="Reset all (R)" Click="ResetButton_Click"
+                            Margin="0,12,0,0" Padding="8,4" Background="#2200E5FF"
+                            Foreground="#CDF6FF" BorderBrush="#5500E5FF" FontFamily="Consolas"/>
+                </StackPanel>
+            </ScrollViewer>
         </Border>
     </Grid>
 </Window>
