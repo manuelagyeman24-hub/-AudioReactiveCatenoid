@@ -416,3 +416,6 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Large local media (attach to a GitHub release instead of committing)
+*.mp4

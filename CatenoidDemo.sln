@@ -1,8 +1,12 @@
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CatenoidDemo", "CatenoidDemo.csproj", "{077CAAB4-6445-96A8-0BA7-DB2287685A60}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CatenoidCore", "CatenoidCore\CatenoidCore.csproj", "{D18A7746-3B99-4788-8E14-8304390998EC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CatenoidCore.Tests", "CatenoidCore.Tests\CatenoidCore.Tests.csproj", "{62CBF0C3-8B5D-435B-B24F-AB94799158EA}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -14,6 +18,14 @@ Global
 		{077CAAB4-6445-96A8-0BA7-DB2287685A60}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{077CAAB4-6445-96A8-0BA7-DB2287685A60}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{077CAAB4-6445-96A8-0BA7-DB2287685A60}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D18A7746-3B99-4788-8E14-8304390998EC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D18A7746-3B99-4788-8E14-8304390998EC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D18A7746-3B99-4788-8E14-8304390998EC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D18A7746-3B99-4788-8E14-8304390998EC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{62CBF0C3-8B5D-435B-B24F-AB94799158EA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{62CBF0C3-8B5D-435B-B24F-AB94799158EA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{62CBF0C3-8B5D-435B-B24F-AB94799158EA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{62CBF0C3-8B5D-435B-B24F-AB94799158EA}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
